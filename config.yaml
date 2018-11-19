@@ -65,3 +65,14 @@ options:
       combination of the first 14 (or less, depending on how many digits the unit number has)
       characters of the charm name and the unit number. While this is not infallible,
       It does have less of a chance of creating hostname conflicts.
+  local-freerdp:
+    type: boolean
+    default: False
+    description: |
+      Enabling this means we run freerdp on each compute node and we rely
+      on nova-hyperv charm to take care of all AD configuration
+  external-ad-service-account:
+    type: string
+    default:
+    description: |
+      External AD service account used to run all services

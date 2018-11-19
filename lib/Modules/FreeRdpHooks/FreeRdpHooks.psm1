@@ -212,6 +212,12 @@ function Get-KeystoneContext {
 }
 
 function Get-CharmServices {
+    $cfg = Get-JujuCharmConfig
+    if ($cfg['local-freerdp']) {
+        $ad_join_mandatory = $false
+    } else {
+        $ad_join_mandatory = $true
+    }
     $ctxtGenerators = @(
         @{
             "generator" = (Get-Item "function:Get-KeystoneContext").ScriptBlock
@@ -226,7 +232,7 @@ function Get-CharmServices {
         @{
             "generator" = (Get-Item "function:Get-ActiveDirectoryContext").ScriptBlock
             "relation" = "ad-join"
-            "mandatory" = $true
+            "mandatory" = $ad_join_mandatory
         }
     );
 
@@ -324,21 +330,43 @@ function Invoke-ConfigChangedHook {
 
     $service = Get-ManagementObject -Class Win32_Service -Filter "name='$FREE_RDP_SERVICE_NAME'"
     $ctx = Get-ActiveDirectoryContext
+    $cfg = Get-JujuCharmConfig
     if (!$service) {
         Write-JujuWarning ("Creating service {0}" -f @($FREE_RDP_SERVICE_NAME))
         $wsgateExe = Join-Path $FREE_RDP_INSTALL_DIR "Binaries\wsgate.exe"
         $binaryPath = "`"{0}`" --config `"{1}`"" -f @($wsgateExe, $services['free-rdp']['config'])
-
-        New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
+	if(!($ctx["adcredentials"]) -and ($cfg['local-freerdp'])){
+                New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
+                    -DisplayName "FreeRDP-WebConnect" `
+                    -StartupType Automatic `
+                    -Confirm:$false
+	} else {
+        	New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
                     -DisplayName "FreeRDP-WebConnect" `
                     -StartupType Automatic `
                     -Credential $ctx["adcredentials"][0]["pscredentials"] `
                     -Confirm:$false
+	}
         Start-ExternalCommand { sc.exe failure $FREE_RDP_SERVICE_NAME reset=5 actions=restart/1000 }
         Start-ExternalCommand { sc.exe failureflag $FREE_RDP_SERVICE_NAME 1 }
     }
-    Grant-PrivilegesOnDomainUser $ctx["adcredentials"][0]["username"]
-    Restart-Service $FREE_RDP_SERVICE_NAME
+    if (($cfg['local-freerdp']) -and ((Get-ManagementObject -Class Win32_ComputerSystem).PartOfDomain)) {
+        $domain = (Get-WmiObject Win32_ComputerSystem).Domain
+        $service_account = $cfg['external-ad-service-account']
+        $service = gwmi win32_service -filter "name='wsgate'"
+        if ($service.state -eq "Running"){
+            $service.stopservice()
+            $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
+            $service.startservice()
+        } else {
+            $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
+        }
+    }
+
+    if($ctx["adcredentials"]){
+        Grant-PrivilegesOnDomainUser $ctx["adcredentials"][0]["username"]
+        Restart-Service $FREE_RDP_SERVICE_NAME
+    }
 
     Write-JujuWarning "Open firewall on http and https ports"
     $httpPort = Get-JujuCharmConfig -Scope "http-port"
