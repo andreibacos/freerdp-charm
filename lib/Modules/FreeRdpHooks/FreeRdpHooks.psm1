@@ -211,6 +211,24 @@ function Get-KeystoneContext {
     }
 }
 
+function Get-ADSubContext {
+    $requiredCtx = @{
+        "service-account" = $null
+        "domainName" = $null
+    }
+
+    $ctxt = Get-JujuRelationContext -Relation "ad-sub" -RequiredContext $requiredCtx
+    if (!$ctxt.Count) {
+        return @{}
+    }
+
+    return @{
+        'service-account' = $ctxt['service-account']
+        'domainName' = $ctxt['domainName']
+
+    }
+}
+
 function Get-CharmServices {
     $ctxtGenerators = @(
         @{
@@ -226,7 +244,12 @@ function Get-CharmServices {
         @{
             "generator" = (Get-Item "function:Get-ActiveDirectoryContext").ScriptBlock
             "relation" = "ad-join"
-            "mandatory" = $true
+            "mandatory" = $false
+        },
+        @{
+            "generator" = (Get-Item "function:Get-ADSubContext").ScriptBlock
+            "relation" = "ad-sub"
+            "mandatory" = $false
         }
     );
 
@@ -322,22 +345,55 @@ function Invoke-ConfigChangedHook {
         return
     }
 
+    $adctx = Get-ActiveDirectoryContext
+    $adsubctx = Get-ADSubContext
+    if ((!$adctx.Count) -and (!$adsubctx.Count)) {
+        $msg = "Incomplete relations: ad-join OR ad-sub required"
+        Set-JujuStatus -Status blocked -Message $msg
+        return
+    }
+
     $service = Get-ManagementObject -Class Win32_Service -Filter "name='$FREE_RDP_SERVICE_NAME'"
-    $ctx = Get-ActiveDirectoryContext
     if (!$service) {
         Write-JujuWarning ("Creating service {0}" -f @($FREE_RDP_SERVICE_NAME))
         $wsgateExe = Join-Path $FREE_RDP_INSTALL_DIR "Binaries\wsgate.exe"
         $binaryPath = "`"{0}`" --config `"{1}`"" -f @($wsgateExe, $services['free-rdp']['config'])
+        if ($adctx.Count) {
+            New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
+                        -DisplayName "FreeRDP-WebConnect" `
+                        -StartupType Automatic `
+                        -Credential $adctx["adcredentials"][0]["pscredentials"] `
+                        -Confirm:$false
+        } elseif ($adsubctx.Count){
+            New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
+                        -DisplayName "FreeRDP-WebConnect" `
+                        -StartupType Automatic `
+                        -Confirm:$false
 
-        New-Service -Name $FREE_RDP_SERVICE_NAME -BinaryPath $binaryPath `
-                    -DisplayName "FreeRDP-WebConnect" `
-                    -StartupType Automatic `
-                    -Credential $ctx["adcredentials"][0]["pscredentials"] `
-                    -Confirm:$false
+            $domain = $adsubctx['domainName']
+            $service_account = $adsubctx['service-account']
+            $service = gwmi win32_service -filter "name='wsgate'"
+            if (($service) -and ($service.startname.tolower() -ne "$$domain\$service_account$".tolower())) {
+                if ($service.state -eq "Running"){
+                    $service.stopservice()
+                    $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
+                $service.startservice()
+                } else {
+                    $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
+                }
+            }
+        }
         Start-ExternalCommand { sc.exe failure $FREE_RDP_SERVICE_NAME reset=5 actions=restart/1000 }
         Start-ExternalCommand { sc.exe failureflag $FREE_RDP_SERVICE_NAME 1 }
     }
-    Grant-PrivilegesOnDomainUser $ctx["adcredentials"][0]["username"]
+    if ($adctx.Count) {
+        Grant-PrivilegesOnDomainUser $adctx["adcredentials"][0]["username"]
+    } elseif ($adsubctx.Count){
+        $domain = $adsubctx['domainName']
+        $service_account = $adsubctx['service-account']
+        Add-LocalGroupMember -Group Administrators -Member "$domain\$service_account$" -ErrorAction SilentlyContinue
+        Grant-Privilege -User "$domain\$service_account$" -Grant SeServiceLogonRight
+    } 
     Restart-Service $FREE_RDP_SERVICE_NAME
 
     Write-JujuWarning "Open firewall on http and https ports"
