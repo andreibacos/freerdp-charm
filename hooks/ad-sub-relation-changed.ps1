@@ -36,7 +36,7 @@ try {
         exit 0
     }
 
-    Invoke-ConfigChangedHook
+    
 
     $domain = $ctx['domainName']
     $service_account = $ctx['service-account']
@@ -45,12 +45,14 @@ try {
         if ($service.state -eq "Running"){
             $service.stopservice()
             $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
-        $service.startservice()
+            $service.startservice()
         } else {
             $service.change($null,$null,$null,$null,$null,$null,"$domain\$service_account$",$null)
         }
     }
-  
+
+    Invoke-ConfigChangedHook
+    
 } catch {
     Write-HookTracebackToLog $_
     exit 1
