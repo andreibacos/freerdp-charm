@@ -24,6 +24,7 @@ Import-Module JujuHooks
 Import-Module OpenStackCommon
 
 function Get-Vcredist {
+    $cfg = Get-JujuCharmConfig
     Write-JujuWarning "Getting vcredist."
     $vcredistUrl = Get-JujuCharmConfig -Scope "vcredist-url"
     if(!$vcredistUrl) {
@@ -40,8 +41,16 @@ function Get-Vcredist {
     Write-JujuWarning "Downloading vcredist-x64 from: $vcredistUrl"
     $file = ([System.Uri]$vcredistUrl).Segments[-1]
     $vcredistPath = Join-Path $env:TEMP $file
+    $proxy = $cfg["proxy"]
     Start-ExecuteWithRetry {
-        Invoke-FastWebRequest -Uri $vcredistUrl -OutFile $vcredistPath | Out-Null
+       $params = @{
+            "Uri" = $vcredistUrl
+            "OutFile" = $vcredistPath
+        }
+        if($proxy) {
+            $params["Proxy"] = $proxy
+        }
+        Invoke-FastWebRequest @params | Out-Null
     } -RetryMessage "Downloading vcredist failed. Retrying..."
     return $vcredistPath
 }
@@ -60,6 +69,7 @@ function Install-Vcredist {
 }
 
 function Get-FreeRdpInstaller {
+    $cfg = Get-JujuCharmConfig
     $installerUrl = Get-JujuCharmConfig -Scope "installer-url"
     if (!$installerUrl) {
         $installerType = 'msi'
@@ -77,10 +87,19 @@ function Get-FreeRdpInstaller {
         $installerUrl = $FREE_RDP_INSTALLER[$installerType]
     }
     Write-JujuWarning "Downloading Free RDP installer from: $installerUrl"
+    $proxy = $cfg["proxy"]
     $file = ([System.Uri]$installerUrl).Segments[-1]
     $tempDownloadFile = Join-Path $env:TEMP $file
     Start-ExecuteWithRetry {
-        Invoke-FastWebRequest -Uri $installerUrl -OutFile $tempDownloadFile | Out-Null
+       $params = @{ 
+            "Uri" = $installerUrl
+            "OutFile" = $tempDownloadFile
+        }
+        if($proxy) {
+            $params["Proxy"] = $proxy
+        }
+        Invoke-FastWebRequest @params | Out-Null
+
     } -RetryMessage "Downloading the Free RDP installer failed. Retrying..."
     return $tempDownloadFile
 }
