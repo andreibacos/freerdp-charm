@@ -117,7 +117,10 @@ function Invoke-FastWebRequest {
         [System.Uri]$Uri,
         [Parameter(Position=1)]
         [string]$OutFile,
-        [switch]$SkipIntegrityCheck=$false
+        [switch]$SkipIntegrityCheck=$false,
+        [Parameter(Mandatory=$false)]
+        [string]$Proxy
+
     )
     PROCESS
     {
@@ -147,8 +150,16 @@ function Invoke-FastWebRequest {
                 Remove-Item $OutFile
             }
         }
-
-        $client = new-object System.Net.Http.HttpClient
+        if($Proxy) {
+            $proxyObj = New-Object "System.Net.WebProxy" $Proxy
+            $handler = New-Object "System.Net.Http.HttpClientHandler"
+            $handler.UseProxy = $true
+            $handler.Proxy = $proxyObj
+            $client = new-object System.Net.Http.HttpClient $handler
+        } else {
+            $client = new-object System.Net.Http.HttpClient
+        }
+        
         $task = $client.GetStreamAsync($Uri)
         $response = $task.Result
         if($task.IsFaulted) {
