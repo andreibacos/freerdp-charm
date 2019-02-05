@@ -46,7 +46,7 @@ function Get-Vcredist {
             "Uri" = $vcredistUrl
             "OutFile" = $vcredistPath
         }
-        if($proxy) {
+        if($cfg["proxy"]) {
             $params["Proxy"] = $cfg["proxy"]
         }
         Invoke-FastWebRequest @params | Out-Null
@@ -93,7 +93,7 @@ function Get-FreeRdpInstaller {
             "Uri" = $installerUrl
             "OutFile" = $tempDownloadFile
         }
-        if($proxy) {
+        if($cfg["proxy"]) {
             $params["Proxy"] = $cfg["proxy"]
         }
         Invoke-FastWebRequest @params | Out-Null
