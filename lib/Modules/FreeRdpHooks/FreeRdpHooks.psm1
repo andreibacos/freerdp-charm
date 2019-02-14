@@ -112,6 +112,10 @@ function Install-FreeRdp {
         Throw ("ERROR: Unknown installer extension: {0}" -f $installerExtension)
     }
     Remove-Item $installerPath
+
+    Copy-Item "$env:CHARM_DIR\files\index.html" $FREE_RDP_DOCUMENT_ROOT
+    Copy-Item "$env:CHARM_DIR\files\CBSL_web_logo3.png" $FREE_RDP_DOCUMENT_ROOT
+    Copy-Item "$env:CHARM_DIR\files\quicksand.css" $FREE_RDP_DOCUMENT_ROOT
 }
 
 function Install-FreeRdpFromMSI {
@@ -311,6 +315,33 @@ function New-SelfSignedX509Cert() {
     Write-JujuWarning "Finished generating self signed certificate"
 }
 
+function Split-Certificates {
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string]$Certificates
+    )
+    
+    $Pattern = '(?smi)^-{2,}BEGIN CERTIFICATE-{2,}.*?-{2,}END CERTIFICATE-{2,}'
+
+    [System.Collections.ArrayList]$result=@()
+    
+    $Certificates | Select-String -Pattern $Pattern -Allmatches | `
+        ForEach-Object { $nr=0;$_.Matches }| ForEach-Object {[void]$result.add($_.Value)}
+    
+    return $result
+}
+
+function Import-CA {
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string]$ca
+    )
+    $tmp_path = Join-Path $FREE_RDP_INSTALL_DIR "tmp_ca.pem"
+    Set-Content -Value $ca -Path $tmp_path
+    Import-Certificate -Filepath $tmp_path -CertStoreLocation Cert:\LocalMachine\Root
+    Remove-Item -Path $tmp_path
+}
+
 # HOOK FUNCTIONS
 
 function Invoke-InstallHook {
@@ -338,7 +369,8 @@ function Invoke-InstallHook {
         Invoke-JujuReboot -Now
     }
 
-    Install-FreeRdp
+    Install-FreeRdp  
+
     Write-JujuInfo "Finished install hook"
 }
 
@@ -367,6 +399,16 @@ function Invoke-ConfigChangedHook {
         $msg = "Incomplete relations: ad-join OR ad-proxy required"
         Set-JujuStatus -Status blocked -Message $msg
         return
+    }
+
+    $cfg = Get-JujuCharmConfig
+
+    if($cfg['ssl-ca']) {
+        $ca_pem = [System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String($cfg['ssl-ca']))
+        $certs = Split-Certificates  -Certificates $ca_pem
+        foreach ($ca in $certs) {
+            Import-CA -ca $ca
+        }
     }
 
     $service = Get-ManagementObject -Class Win32_Service -Filter "name='$FREE_RDP_SERVICE_NAME'"

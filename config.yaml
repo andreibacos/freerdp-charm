@@ -68,3 +68,14 @@ options:
   proxy:
     type: string
     description: "A http proxy to use when downloading installers"
+  ssl-ca:
+    type: string
+    default:
+    description: |
+      base64-encoded SSL CA to use with the certificate and key provided -
+      this is only required if you are providing a privately signed ssl_cert
+      and ssl_key.
+  os-rdp-network:
+    type: string
+    description: |
+      Network used for RDP. This network must be reachable from your browser same as horizon.
