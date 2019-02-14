@@ -338,7 +338,7 @@ function Import-CA {
     )
     $tmp_path = Join-Path $FREE_RDP_INSTALL_DIR "tmp_ca.pem"
     Set-Content -Value $ca -Path $tmp_path
-    Import-Certificate -Filepath $tmp_path -CertStoreLocation Cert:\LocalMachine\Root
+    Import-Certificate -CertificatePath $tmp_path -StoreLocation LocalMachine -StoreName Root
     Remove-Item -Path $tmp_path
 }
 
